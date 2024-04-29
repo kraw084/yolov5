@@ -463,6 +463,7 @@ def train(hyp, opt, device, callbacks):
                 torch.save(ckpt, last)
                 if best_fitness == fi:
                     torch.save(ckpt, best)
+                    print(f"Saving best at epoch {epoch}")
                 if opt.save_period > 0 and epoch % opt.save_period == 0:
                     torch.save(ckpt, w / f"epoch{epoch}.pt")
                 del ckpt

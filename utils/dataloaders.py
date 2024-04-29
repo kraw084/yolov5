@@ -824,6 +824,12 @@ class LoadImagesAndLabels(Dataset):
                 if nl:
                     labels[:, 1] = 1 - labels[:, 1]
 
+            if 'blur' in hyp and random.random() < hyp['blur']:
+                h, w, _ = img.shape
+                kernal_size = w//10 if w//10 % 2 == 1 else w//10 + 1
+                sigma = (random.random() * 1.9) + 0.1
+                img = cv2.GaussianBlur(img, (kernal_size, kernal_size), sigmaX=sigma, sigmaY=sigma)
+
             # Cutouts
             # labels = cutout(img, labels, p=0.5)
             # nl = len(labels)  # update after cutout
