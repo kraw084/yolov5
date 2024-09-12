@@ -38,6 +38,8 @@ import yaml
 from torch.optim import lr_scheduler
 from tqdm import tqdm
 
+#torch.autograd.set_detect_anomaly(True)
+
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
 if str(ROOT) not in sys.path:
@@ -334,7 +336,22 @@ def train(hyp, opt, device, callbacks):
         f"Logging results to {colorstr('bold', save_dir)}\n"
         f'Starting training for {epochs} epochs...'
     )
+
+    #set up unitmodule -------------------------------------
+    import unit_module
+
+    unit_mod = unit_module.UnitModule(32, 32, 9, 9)
+    unit_mod.tmap_network = unit_mod.tmap_network.to(device)
+    unit_mod.tmap_network.train()
+    unit_mod_opt = torch.optim.Adam(unit_mod.tmap_network.parameters(), 0.001)
+
+
+    # ------------------------------------------------------
+    
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
+        unit_mod_epoch_loss = 0
+        batches = 0
+        
         callbacks.run("on_train_epoch_start")
         model.train()
 
@@ -382,7 +399,27 @@ def train(hyp, opt, device, callbacks):
 
             # Forward
             with torch.cuda.amp.autocast(amp):
-                pred = model(imgs)  # forward
+                enhanced_imgs = unit_mod(imgs)
+                pred = model(enhanced_imgs)  # forward
+                loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
+                if RANK != -1:
+                    loss *= WORLD_SIZE  # gradient averaged between devices in DDP mode
+                if opt.quad:
+                    loss *= 4.0
+
+            
+            unit_mod_loss = unit_module.unit_mod_train_step(unit_mod, unit_mod_opt, imgs, enhanced_imgs, loss)
+            unit_mod_epoch_loss += unit_mod_loss.item()
+            batches += 1
+
+            unit_mod_loss.backward()
+            unit_mod_opt.step()
+
+            optimizer.zero_grad()
+
+            #Redo Forward
+            with torch.cuda.amp.autocast(amp):
+                pred = model(enhanced_imgs.detach())  # forward
                 loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
                 if RANK != -1:
                     loss *= WORLD_SIZE  # gradient averaged between devices in DDP mode
@@ -390,8 +427,9 @@ def train(hyp, opt, device, callbacks):
                     loss *= 4.0
 
             # Backward
-            scaler.scale(loss).backward()
+            scaler.scale(loss).backward()#retain_graph=True)
 
+ 
             # Optimize - https://pytorch.org/docs/master/notes/amp_examples.html
             if ni - last_opt_step >= accumulate:
                 scaler.unscale_(optimizer)  # unscale gradients
@@ -413,7 +451,7 @@ def train(hyp, opt, device, callbacks):
                 )
                 callbacks.run("on_train_batch_end", model, ni, imgs, targets, paths, list(mloss))
                 if callbacks.stop_training:
-                    return
+                    return          
             # end batch ------------------------------------------------------------------------------------------------
 
         # Scheduler
@@ -447,6 +485,9 @@ def train(hyp, opt, device, callbacks):
                 best_fitness = fi
             log_vals = list(mloss) + list(results) + lr
             callbacks.run("on_fit_epoch_end", log_vals, epoch, best_fitness, fi)
+
+            print(f"Unit module loss: {unit_mod_epoch_loss/batches}")
+            unit_module.save_unit_mod(unit_mod, epoch)
 
             # Save model
             if (not nosave) or (final_epoch and not evolve):  # if save
