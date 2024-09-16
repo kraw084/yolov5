@@ -343,7 +343,7 @@ def train(hyp, opt, device, callbacks):
     unit_mod = unit_module.UnitModule(32, 32, 9, 9)
     unit_mod.tmap_network = unit_mod.tmap_network.to(device)
     unit_mod.tmap_network.train()
-    unit_mod_opt = torch.optim.Adam(unit_mod.tmap_network.parameters(), 0.001)
+    unit_mod_opt = torch.optim.Adam(unit_mod.tmap_network.parameters(), 0.0001)
 
 
     # ------------------------------------------------------
@@ -351,6 +351,7 @@ def train(hyp, opt, device, callbacks):
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         unit_mod_epoch_loss = 0
         batches = 0
+        unit_mod_grad_norm = 0
         
         callbacks.run("on_train_epoch_start")
         model.train()
@@ -409,10 +410,19 @@ def train(hyp, opt, device, callbacks):
 
             
             unit_mod_loss = unit_module.unit_mod_train_step(unit_mod, unit_mod_opt, imgs, enhanced_imgs, loss)
-            unit_mod_epoch_loss += unit_mod_loss.item()
+            unit_mod_epoch_loss += unit_mod_loss.item() - loss.item()
             batches += 1
 
             unit_mod_loss.backward()
+            #torch.nn.utils.clip_grad_norm_(model.parameters(), )
+
+            total_norm = 0
+            for p in unit_mod.tmap_network.parameters():
+                param_norm = p.grad.detach().data.norm(2)
+                total_norm += param_norm.item() ** 2
+            total_norm = total_norm ** 0.5
+            unit_mod_grad_norm += total_norm
+            
             unit_mod_opt.step()
 
             optimizer.zero_grad()
@@ -487,6 +497,7 @@ def train(hyp, opt, device, callbacks):
             callbacks.run("on_fit_epoch_end", log_vals, epoch, best_fitness, fi)
 
             print(f"Unit module loss: {unit_mod_epoch_loss/batches}")
+            print(f"Unit module grad norm: {unit_mod_grad_norm/batches}")
             unit_module.save_unit_mod(unit_mod, epoch)
 
             # Save model
