@@ -147,6 +147,8 @@ def run(
     plots=True,
     callbacks=Callbacks(),
     compute_loss=None,
+
+    unit_mod = None
 ):
     # Initialize/load model and set device
     training = model is not None
@@ -233,6 +235,8 @@ def run(
 
         # Inference
         with dt[1]:
+            if unit_mod:
+                im = unit_mod(im)
             preds, train_out = model(im) if compute_loss else (model(im, augment=augment), None)
 
         # Loss

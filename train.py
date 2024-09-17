@@ -216,11 +216,24 @@ def train(hyp, opt, device, callbacks):
         batch_size = check_train_batch_size(model, imgsz, amp)
         loggers.on_params_update({"batch_size": batch_size})
 
+    #set up unitmodule -------------------------------------
+    import unit_module
+
+    unit_mod = unit_module.UnitModule(32, 32, 9, 9)
+    unit_mod.tmap_network = unit_mod.tmap_network.to(device)
+    unit_mod.tmap_network.train()
+    unit_mod_opt = torch.optim.Adam(unit_mod.tmap_network.parameters(), 0.0001)
+
+
     # Optimizer
     nbs = 64  # nominal batch size
     accumulate = max(round(nbs / batch_size), 1)  # accumulate loss before optimizing
     hyp["weight_decay"] *= batch_size * accumulate / nbs  # scale weight_decay
     optimizer = smart_optimizer(model, opt.optimizer, hyp["lr0"], hyp["momentum"], hyp["weight_decay"])
+
+
+    #add unit mod parameters to opt
+    #optimizer.add_param_group({"params": unit_mod.tmap_network.parameters()})
 
     # Scheduler
     if opt.cos_lr:
@@ -337,17 +350,7 @@ def train(hyp, opt, device, callbacks):
         f'Starting training for {epochs} epochs...'
     )
 
-    #set up unitmodule -------------------------------------
-    import unit_module
 
-    unit_mod = unit_module.UnitModule(32, 32, 9, 9)
-    unit_mod.tmap_network = unit_mod.tmap_network.to(device)
-    unit_mod.tmap_network.train()
-    unit_mod_opt = torch.optim.Adam(unit_mod.tmap_network.parameters(), 0.0001)
-
-
-    # ------------------------------------------------------
-    
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         unit_mod_epoch_loss = 0
         batches = 0
@@ -412,9 +415,8 @@ def train(hyp, opt, device, callbacks):
             unit_mod_loss = unit_module.unit_mod_train_step(unit_mod, unit_mod_opt, imgs, enhanced_imgs, loss)
             unit_mod_epoch_loss += unit_mod_loss.item() - loss.item()
             batches += 1
-
             unit_mod_loss.backward()
-            #torch.nn.utils.clip_grad_norm_(model.parameters(), )
+            unit_mod_opt.step()
 
             total_norm = 0
             for p in unit_mod.tmap_network.parameters():
@@ -422,9 +424,6 @@ def train(hyp, opt, device, callbacks):
                 total_norm += param_norm.item() ** 2
             total_norm = total_norm ** 0.5
             unit_mod_grad_norm += total_norm
-            
-            unit_mod_opt.step()
-
             optimizer.zero_grad()
 
             #Redo Forward
@@ -437,8 +436,8 @@ def train(hyp, opt, device, callbacks):
                     loss *= 4.0
 
             # Backward
-            scaler.scale(loss).backward()#retain_graph=True)
-
+            scaler.scale(loss).backward()
+            #scaler.scale(unit_mod_loss).backward()
  
             # Optimize - https://pytorch.org/docs/master/notes/amp_examples.html
             if ni - last_opt_step >= accumulate:
@@ -486,6 +485,7 @@ def train(hyp, opt, device, callbacks):
                     plots=False,
                     callbacks=callbacks,
                     compute_loss=compute_loss,
+                    unit_mod = unit_mod
                 )
 
             # Update best mAP
@@ -519,6 +519,9 @@ def train(hyp, opt, device, callbacks):
                 if best_fitness == fi:
                     torch.save(ckpt, best)
                     print(f"Saving best at epoch {epoch}")
+
+                    unit_module.save_unit_mod(unit_mod, "_best")
+
                 if opt.save_period > 0 and epoch % opt.save_period == 0:
                     torch.save(ckpt, w / f"epoch{epoch}.pt")
                 del ckpt
