@@ -187,6 +187,9 @@ def run(
     iouv = torch.linspace(0.5, 0.95, 10, device=device)  # iou vector for mAP@0.5:0.95
     niou = iouv.numel()
 
+    if unit_mod:
+        unit_mod.tmap_network.eval()
+
     # Dataloader
     if not training:
         if pt and not single_cls:  # check --weights are trained on --data
@@ -236,7 +239,9 @@ def run(
         # Inference
         with dt[1]:
             if unit_mod:
-                im = unit_mod(im)
+                im = unit_mod(im.float())
+                im = im.half() if half else im.float() 
+
             preds, train_out = model(im) if compute_loss else (model(im, augment=augment), None)
 
         # Loss

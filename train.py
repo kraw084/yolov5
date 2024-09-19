@@ -353,11 +353,14 @@ def train(hyp, opt, device, callbacks):
 
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         unit_mod_epoch_loss = 0
+        det_epoch_loss = 0
         batches = 0
         unit_mod_grad_norm = 0
         
         callbacks.run("on_train_epoch_start")
         model.train()
+
+        unit_mod.tmap_network.train()
 
         # Update image weights (optional, single-GPU only)
         if opt.image_weights:
@@ -377,6 +380,9 @@ def train(hyp, opt, device, callbacks):
         if RANK in {-1, 0}:
             pbar = tqdm(pbar, total=nb, bar_format=TQDM_BAR_FORMAT)  # progress bar
         optimizer.zero_grad()
+
+        unit_mod_opt.zero_grad()
+
         for i, (imgs, targets, paths, _) in pbar:  # batch -------------------------------------------------------------
             callbacks.run("on_train_batch_start")
             ni = i + nb * epoch  # number integrated batches (since train start)
@@ -412,8 +418,9 @@ def train(hyp, opt, device, callbacks):
                     loss *= 4.0
 
             
-            unit_mod_loss = unit_module.unit_mod_train_step(unit_mod, unit_mod_opt, imgs, enhanced_imgs, loss)
+            unit_mod_loss = unit_module.unit_mod_train_step(unit_mod, unit_mod_opt, imgs, enhanced_imgs, loss, w1=1, w2=1, w3=1, w4=1)
             unit_mod_epoch_loss += unit_mod_loss.item() - loss.item()
+            det_epoch_loss += loss.item()
             batches += 1
             unit_mod_loss.backward()
             unit_mod_opt.step()
@@ -437,7 +444,6 @@ def train(hyp, opt, device, callbacks):
 
             # Backward
             scaler.scale(loss).backward()
-            #scaler.scale(unit_mod_loss).backward()
  
             # Optimize - https://pytorch.org/docs/master/notes/amp_examples.html
             if ni - last_opt_step >= accumulate:
@@ -498,6 +504,7 @@ def train(hyp, opt, device, callbacks):
 
             print(f"Unit module loss: {unit_mod_epoch_loss/batches}")
             print(f"Unit module grad norm: {unit_mod_grad_norm/batches}")
+            print(f"\nDetector loss: {det_epoch_loss/batches}")
             unit_module.save_unit_mod(unit_mod, epoch)
 
             # Save model
