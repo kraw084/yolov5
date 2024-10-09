@@ -418,7 +418,7 @@ def train(hyp, opt, device, callbacks):
                     loss *= 4.0
 
             
-            unit_mod_loss = unit_module.unit_mod_train_step(unit_mod, unit_mod_opt, imgs, enhanced_imgs, loss, w1=1, w2=1, w3=1, w4=1)
+            unit_mod_loss = unit_module.unit_mod_train_step(unit_mod, unit_mod_opt, imgs, enhanced_imgs, loss, w1=500, w2=0.01, w3=0, w4=0)
             unit_mod_epoch_loss += unit_mod_loss.item() - loss.item()
             det_epoch_loss += loss.item()
             batches += 1
