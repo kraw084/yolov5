@@ -26,7 +26,7 @@ def smooth(y, f=0.05):
     return np.convolve(yp, np.ones(nf) / nf, mode="valid")  # y-smoothed
 
 
-def ap_per_class(tp, conf, pred_cls, target_cls, plot=False, save_dir=".", names=(), eps=1e-16, prefix=""):
+def ap_per_class(tp, conf, pred_cls, target_cls, plot=False, save_dir=".", names=(), eps=1e-16, prefix="", fixed_conf=None):
     """
     Compute the average precision, given the recall and precision curves.
 
@@ -88,7 +88,11 @@ def ap_per_class(tp, conf, pred_cls, target_cls, plot=False, save_dir=".", names
         plot_mc_curve(px, p, Path(save_dir) / f"{prefix}P_curve.png", names, ylabel="Precision")
         plot_mc_curve(px, r, Path(save_dir) / f"{prefix}R_curve.png", names, ylabel="Recall")
 
-    i = smooth(f1.mean(0), 0.1).argmax()  # max F1 index
+    if fixed_conf is None:
+        i = smooth(f1.mean(0), 0.1).argmax()  # max F1 index
+    else:
+        i = (fixed_conf * p.shape[0]).round().astype(int)  # fixed confidence index
+
     p, r, f1 = p[:, i], r[:, i], f1[:, i]
     tp = (r * nt).round()  # true positives
     fp = (tp / (p + eps) - tp).round()  # false positives
